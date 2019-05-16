@@ -3,8 +3,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "Eigen-3.3/Eigen/Core"
-#include "Eigen-3.3/Eigen/QR"
+//#include "Eigen-3.3/Eigen/Core"
+//#include "Eigen-3.3/Eigen/QR"
 #include "helpers.h"
 #include "json.hpp"
 
@@ -92,13 +92,56 @@ int main() {
 
           vector<double> next_x_vals;
           vector<double> next_y_vals;
+          vector<double> next_s_vals;
+          vector<double> next_d_vals;
 
           /**
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
-
-
+          double timeframe = 0.02;
+          double pathtime = 1.0;
+          double target_velocity = 10.0;
+          double t;
+          
+		  //get coeffecients
+          vector<double> s_coeffs;
+          vector<double> d_coeffs;
+          vector<double> next_xy;
+          double next_s;
+          double next_d;
+          int num_points_required;
+          double time_required;
+          vector<double> s_start;
+    	  vector<double> s_end;
+          vector<double> d_start;
+    	  vector<double> d_end;
+          
+          
+          std::cout << "End Path S: " << end_path_s << std::endl;
+          num_points_required = pathtime/timeframe - previous_path_x.size();
+          time_required = num_points_required*timeframe;
+          s_start = {end_path_s, car_speed, 0};
+          s_end = {end_path_s + target_velocity*time_required, target_velocity, 0};
+          d_start = {car_d, 0, 0};
+          d_end = {car_d, 0, 0};
+          s_coeffs = JMT(s_start, s_end, time_required);
+          d_coeffs = JMT(d_start, d_end, time_required);
+		  
+          for(int i = 0; i < num_points_required; ++i) {
+    		t = i * timeframe;
+            next_s = s_coeffs[0] + s_coeffs[1] * t + s_coeffs[2] * t*t + s_coeffs[3] * t*t*t + s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
+            next_d = d_coeffs[0] + d_coeffs[1] * t + d_coeffs[2] * t*t + d_coeffs[3] * t*t*t + d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
+            next_xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            next_s_vals.push_back(next_s);
+            next_d_vals.push_back(next_d);
+            next_x_vals.push_back(next_xy[0]);
+            next_y_vals.push_back(next_xy[1]);
+          }
+          std::cout << "Number of new points required:  " << num_points_required << std::endl;
+          std::cout << "S:  " <<  std::endl;
+          std::cout << "D:  " <<  std::endl;
+            
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
