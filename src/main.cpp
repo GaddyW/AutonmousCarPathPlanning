@@ -99,8 +99,9 @@ int main() {
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
+          
           double timeframe = 0.02;
-          double pathtime = 1.0;
+          double pathtime = 2.0;
           double target_velocity = 10.0;
           double t;
           
@@ -112,19 +113,42 @@ int main() {
           double next_d;
           int num_points_required;
           double time_required;
+          double start_s;
+          double start_speed;
           vector<double> s_start;
     	  vector<double> s_end;
           vector<double> d_start;
     	  vector<double> d_end;
           
           
-          std::cout << "End Path S: " << end_path_s << std::endl;
+          
+          int prev_path_size = previous_path_y.size();
           num_points_required = pathtime/timeframe - previous_path_x.size();
           time_required = num_points_required*timeframe;
-          s_start = {end_path_s, car_speed, 0};
-          s_end = {end_path_s + target_velocity*time_required, target_velocity, 0};
+          if (prev_path_size == 0 ) {
+            start_s = car_s;
+            start_speed = car_speed;
+          } else {
+            start_s = end_path_s;
+            start_speed = target_velocity;
+          }
+          s_start = {start_s, start_speed, 0};
+          s_end = {start_s + target_velocity*time_required, target_velocity, 0};
           d_start = {car_d, 0, 0};
           d_end = {car_d, 0, 0};
+          std::cout << "Current X: " << car_x << std::endl;
+          std::cout << "Current Y: " << car_y << std::endl;
+          std::cout << "Current Yaw: " << car_yaw << std::endl;
+          std::cout << "Current S: " << car_s << std::endl;
+          std::cout << "Current Speed: " << car_speed << std::endl;
+          std::cout << "Prev Path Size: " << prev_path_size << "   End Path S: " << end_path_s << std::endl;
+          std::cout << "S_start: " << s_start[0] << ", " << s_start[1] << ", " << s_start[2] << std::endl;
+          std::cout << "S_end: "   << s_end[0]  << ", " << s_end[1]  << ", " << s_end[2]  << std::endl;
+          std::cout << "D_start: " << d_start[0] << ", " << d_start[1] << ", " << d_start[2] << std::endl;
+          std::cout << "D_end: "   << d_end[0]  << ", " << d_end[1]  << ", " << d_end[2]  << std::endl;
+          std::cout << "Number of new points required:  " << num_points_required << std::endl;          
+          
+          
           s_coeffs = JMT(s_start, s_end, time_required);
           d_coeffs = JMT(d_start, d_end, time_required);
 		  
@@ -132,16 +156,43 @@ int main() {
     		t = i * timeframe;
             next_s = s_coeffs[0] + s_coeffs[1] * t + s_coeffs[2] * t*t + s_coeffs[3] * t*t*t + s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
             next_d = d_coeffs[0] + d_coeffs[1] * t + d_coeffs[2] * t*t + d_coeffs[3] * t*t*t + d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
-            next_xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            next_s_vals.push_back(next_s);
-            next_d_vals.push_back(next_d);
-            next_x_vals.push_back(next_xy[0]);
-            next_y_vals.push_back(next_xy[1]);
+            //if (abs(next_s) > 0.0001 ) {
+            	next_xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            	next_s_vals.push_back(next_s);
+            	next_d_vals.push_back(next_d);
+            	next_x_vals.push_back(next_xy[0]);
+            	next_y_vals.push_back(next_xy[1]);
+            	
+            //}
           }
-          std::cout << "Number of new points required:  " << num_points_required << std::endl;
-          std::cout << "S:  " <<  std::endl;
-          std::cout << "D:  " <<  std::endl;
-            
+          
+          
+          
+          std::cout << "S:  ";
+          for(int i = 0; i < next_s_vals.size(); ++i) {
+    	          std::cout << next_s_vals[i] << " ";
+          }
+          std::cout << std::endl << std::endl;
+          
+          std::cout << "D:  ";
+          for(int i = 0; i < next_d_vals.size(); ++i) {
+    	          std::cout << next_d_vals[i] << " ";
+          }
+          std::cout << std::endl << std::endl;
+
+          
+          std::cout << "Current X: " << car_x << std::endl << "X path:  ";
+          for(int i = 0; i < next_x_vals.size(); ++i) {
+    	          std::cout << next_x_vals[i] << " ";
+          }
+          std::cout << std::endl << std::endl;
+          
+          std::cout << "Current Y: " << car_y << std::endl << "Y path:  ";
+          for(int i = 0; i < next_y_vals.size(); ++i) {
+    	          std::cout << next_y_vals[i] << " ";
+          }
+          std::cout << std::endl << std::endl;
+
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
