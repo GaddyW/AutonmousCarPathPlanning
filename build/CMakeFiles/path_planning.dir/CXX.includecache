@@ -1059,6 +1059,8 @@ vector
 -
 iostream
 -
+spline.h
+/home/workspace/CarND-Path-Planning-Project/src/spline.h
 Eigen-3.3/Eigen/Dense
 /home/workspace/CarND-Path-Planning-Project/src/Eigen-3.3/Eigen/Dense
 
@@ -1133,4 +1135,14 @@ helpers.h
 /home/workspace/CarND-Path-Planning-Project/src/helpers.h
 json.hpp
 /home/workspace/CarND-Path-Planning-Project/src/json.hpp
+
+/home/workspace/CarND-Path-Planning-Project/src/spline.h
+cstdio
+-
+cassert
+-
+vector
+-
+algorithm
+-
 

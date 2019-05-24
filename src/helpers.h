@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include <iostream>
+#include "spline.h"
 #include "Eigen-3.3/Eigen/Dense"
 //#include "Eigen-3.3/Eigen/QR"
 
@@ -202,5 +203,38 @@ vector<double> JMT(vector<double> &start, vector<double> &end, double T) {
 
   return result;
 }
+
+struct granular_map {
+  vector<double> x;
+  vector<double> y;
+  vector<double> dx;
+  vector<double> dy;
+  vector<double> s;
+  tk::spline spline_x;
+  tk::spline spline_y;
+  tk::spline spline_dx;
+  tk::spline spline_dy;
+};
+
+granular_map get_map(tk::spline x, tk::spline y, tk::spline dx, tk::spline dy, double MAX_S) {
+  
+  vector<double> new_x;
+  vector<double> new_y;
+  vector<double> new_dx;
+  vector<double> new_dy;
+  vector<double> new_s;
+  
+  for (double s = 0; s <= floor(MAX_S); s++) {
+    new_x.push_back(x(s));
+    new_y.push_back(y(s));
+    new_dx.push_back(dx(s));
+    new_dy.push_back(dy(s));
+    new_s.push_back(s);
+  }
+  
+  granular_map result = {new_x, new_y, new_dx, new_dy, new_s, x, y, dx, dy};
+  return result;
+}
+
 
 #endif  // HELPERS_H
