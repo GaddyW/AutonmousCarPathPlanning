@@ -93,7 +93,8 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
 vector<double> getFrenet(double x, double y, double theta, 
                          const vector<double> &maps_x, 
                          const vector<double> &maps_y) {
-  int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
+  //int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
+  int next_wp = ClosestWaypoint(x,y, maps_x,maps_y);
 
   int prev_wp;
   prev_wp = next_wp-1;
@@ -224,7 +225,8 @@ granular_map get_map(tk::spline x, tk::spline y, tk::spline dx, tk::spline dy, d
   vector<double> new_dy;
   vector<double> new_s;
   
-  for (double s = 0; s <= floor(MAX_S); s++) {
+  float incrementer = 0.02;
+  for (double s = 0; s <= floor(MAX_S); s+=incrementer) {
     new_x.push_back(x(s));
     new_y.push_back(y(s));
     new_dx.push_back(dx(s));
