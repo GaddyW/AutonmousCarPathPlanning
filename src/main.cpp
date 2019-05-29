@@ -22,6 +22,10 @@ int main() {
   vector<double> map_waypoints_s;
   vector<double> map_waypoints_dx;
   vector<double> map_waypoints_dy;
+  
+  // variables to store last path
+  vector<vector <double>> path_s;
+  vector<vector <double>> path_d;
 
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
@@ -65,7 +69,7 @@ int main() {
   granular_map gran_map = get_map(spline_x, spline_y, spline_dx, spline_dy, max_s);
   
   //listen for messages and act
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s, &map_waypoints_dx,&map_waypoints_dy, &gran_map]
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s, &map_waypoints_dx,&map_waypoints_dy, &gran_map, &path_s, &path_d]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -113,7 +117,7 @@ int main() {
           
           double timeframe = 0.02;
           double pathtime = 7.0;
-          double target_velocity = 7.0;
+          double target_velocity = 50 * 0.44704;
          
           //begin trajectory creation
 
@@ -126,113 +130,68 @@ int main() {
           double buff;  //variable to determine how much of the previous path to include in the subsquent path
           int prev_path_size = previous_path_y.size();
           
-          if (prev_path_size == 0 ) {
-            start_s = car_s;
-            start_d = car_d;
-            start_speed = car_speed * 0.44704; //mph to m/s conversion
-            start_accel = 0;
+          if (prev_path_size == 0 ) {  //initialization when there is no path
             buff = 0;
+            path_s.push_back({car_s, car_speed * 0.44704, 0});
+            path_d.push_back({car_d, 0, 0});
           } else {
+ 			//remove from points that have been used from the s and d paths
+            int elapsed_points = path_s.size() - previous_path_y.size();
+            path_s.erase(path_s.begin(),path_s.begin()+elapsed_points);
+            path_d.erase(path_d.begin(),path_d.begin()+elapsed_points);
+
             //determine how many new points need to be added.  If we're changing behavior, than keep the first 1/2 second of the previous path and then append new values.  If 
             //there is no change in behavior, then we can simply append to the end of the previous path
+
             if (change_behavior == true) {
               buff = .5/timeframe;
             } else {
               buff = prev_path_size-1;
             }
-            
-			//convert prev_path_x/y to frenet coordinates using a more granular map
-            int i = ClosestWaypoint(previous_path_x[buff], previous_path_y[buff], gran_map.x, gran_map.y); 
-            double theta = rad2deg(atan2(gran_map.dy[i], gran_map.dx[i]));
-            vector<double> end_frenet = getFrenet(previous_path_x[buff], previous_path_y[buff], theta+90, gran_map.x, gran_map.y);
-            
-            //end_frenet still has an error component due to nonlinearities.  With the spline functions for x(s) and y(s) that we defined earlier,
-            //we can remove that error.
-            double test_x = gran_map.spline_x(end_frenet[0]) + end_frenet[1] * gran_map.spline_dx(end_frenet[0]);
-            double test_y = gran_map.spline_y(end_frenet[0]) + end_frenet[1] * gran_map.spline_dy(end_frenet[0]);
-            double transition_distance = distance(test_x, test_y, previous_path_x[buff], previous_path_y[buff]);
-            double prev_dist = distance(previous_path_x[buff], previous_path_y[buff], previous_path_x[buff-1], previous_path_y[buff-1]);
-            double transition_error = transition_distance-prev_dist;
-            start_s = end_frenet[0] - transition_error;
-            start_d = end_frenet[1];
-            
-            
-            //calculate transition speed and acceleration for the JMT inputs
-            double prev_speed = prev_dist/timeframe;
-            start_speed = prev_speed;
-            
-            double prev_prev_dist = distance(previous_path_x[buff-1], previous_path_y[buff-1], previous_path_x[buff-2], previous_path_y[buff-2]);
-            double prev_prev_speed = prev_prev_dist/timeframe;
-            double prev_accel = (prev_speed - prev_prev_speed)/timeframe;
-            start_accel = prev_accel;
-            
-            //debug
-            double transition_speed = transition_distance/timeframe;
-            double transition_speed_change = transition_speed/start_speed;
-            double newx = gran_map.spline_x(start_s) + end_frenet[1] * gran_map.spline_dx(start_s);
-            double newy = gran_map.spline_y(start_s) + end_frenet[1] * gran_map.spline_dy(start_s);
-            double new_dist = distance(newx, newy, previous_path_x[buff], previous_path_y[buff]); 
-            double new_error = round(10000*(new_dist - prev_dist))/10000;
-            //std::cout << "Distance (Prev, New): (" << prev_dist << "," << new_dist << ")  Difference: " << new_error << std::endl;
-            //std::cout << "S (reported, calculated): (" << end_path_s << "," << end_frenet[0] << ")   D (reported, calculated): (" << end_path_d << "," << end_frenet[1] << ")" << std::endl; 
-            //std::cout << "Distance (Prev, Transition): (" << prev_dist << "," << transition_distance << ")  Speed (Prev, Transition): (" << start_speed << "," << transition_speed << ")" << std::endl;
-            //std::cout << start_s << "  Distance ratio: " << transition_distance_change << "   Speed ratio: " << transition_speed_change << std::endl;
-            //std::cout << "(speed, acceleration): (" << start_speed << "," << start_accel << ")  error:" << new_error << std::endl;
-            
+             
           }
           
           // Create Jerk Minimizing Trajectory coefficients
           int num_points_required = pathtime/timeframe - buff;
           double time_required = num_points_required*timeframe;
-          vector<double> s_start = {start_s, start_speed, start_accel};
-          vector<double> s_end = {start_s + (target_velocity+start_speed)/2*time_required, target_velocity, 0};
-          vector<double> d_start = {start_d, 0, 0};
+          vector<double> s_start = {path_s[buff][0], path_s[buff][1], path_s[buff][2]};
+          vector<double> s_end = {path_s[buff][0] + (target_velocity+path_s[buff][1])/2*time_required, target_velocity, 0};
+          vector<double> d_start = {path_d[buff][0], path_d[buff][1], path_d[buff][2]};
           vector<double> d_end = {6, 0, 0};
 		  vector<double> s_coeffs = JMT(s_start, s_end, time_required);
           vector<double> d_coeffs = JMT(d_start, d_end, time_required);
 		  
-          // calculate new trajectory.  First use the values from the previous trajectory that have not been used, and then concatenate based on new JMT calculation
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
-          vector<double> next_s_vals;
-          vector<double> next_d_vals;
-
-          if (prev_path_size > 0) {
-            for(int i = 0; i < (buff+1); i++) {
-              next_x_vals.push_back(previous_path_x[i]);
-              next_y_vals.push_back(previous_path_y[i]);
-            }
-          }
+     
           
-          
-          double next_s;
-          double next_d;
+          double s, s_dot, s_dot_dot;
+          double d, d_dot, d_dot_dot;
           double t;
-          for(int i = 0; i < num_points_required ; ++i) {
+          for(int i = 1; i < num_points_required ; ++i) {
     		t = i * timeframe;
-            next_s = s_coeffs[0] + s_coeffs[1] * t + s_coeffs[2] * t*t + s_coeffs[3] * t*t*t + s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
-            next_d = d_coeffs[0] + d_coeffs[1] * t + d_coeffs[2] * t*t + d_coeffs[3] * t*t*t + d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
-            next_s_vals.push_back(next_s);
-            next_d_vals.push_back(next_d);
-            next_x_vals.push_back(gran_map.spline_x(next_s) + next_d * gran_map.spline_dx(next_s));
-            next_y_vals.push_back(gran_map.spline_y(next_s) + next_d * gran_map.spline_dy(next_s));   
+            s         =   s_coeffs[0] +        s_coeffs[1] * t +     s_coeffs[2] * t*t +     s_coeffs[3] * t*t*t +    s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
+            s_dot     =   s_coeffs[1] +      2*s_coeffs[2] * t +   3*s_coeffs[3] * t*t +   4*s_coeffs[4] * t*t*t +  5*s_coeffs[5] * t*t*t*t;
+            s_dot_dot = 2*s_coeffs[2] * t +  6*s_coeffs[3] * t +  12*s_coeffs[4] * t*t +  20*s_coeffs[5] * t*t*t;
+            
+            d         =   d_coeffs[0] +        d_coeffs[1] * t +     d_coeffs[2] * t*t +     d_coeffs[3] * t*t*t +    d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
+            d_dot     =   d_coeffs[1] +      2*d_coeffs[2] * t +   3*d_coeffs[3] * t*t +   4*d_coeffs[4] * t*t*t +  5*d_coeffs[5] * t*t*t*t;
+            d_dot_dot = 2*d_coeffs[2] * t +  6*d_coeffs[3] * t +  12*d_coeffs[4] * t*t +  20*d_coeffs[5] * t*t*t;
+                     
+            path_s.push_back({s, s_dot, s_dot_dot});
+            path_d.push_back({d, d_dot, d_dot_dot});
+            previous_path_x.push_back(gran_map.spline_x(s) + d * gran_map.spline_dx(s));
+            previous_path_y.push_back(gran_map.spline_y(s) + d * gran_map.spline_dy(s));   
           }
 
           
           //DEBUG
-          for(int i = 1; i < next_x_vals.size(); i++) {
-              double xy_dist = distance(next_x_vals[i], next_y_vals[i], next_x_vals[i-1], next_y_vals[i-1]);
-              //double s_dist = next_s_vals[i] - next_s_vals[i-1];
-              double xy_speed = xy_dist/timeframe;
-              //double s_speed = s_dist/timeframe;
-			  //std::cout << "i: " << i << "  (x,y): (" << next_x_vals[i] << "," << next_y_vals[i] << "  XY Distance: " << xy_dist << "  XY Speed: " << xy_speed << std::endl;
-         	  //std::cout << "S Distance: " << s_dist << "  S Speed: " << s_speed << "   Car Speed: " << car_speed << "   XY Distance: "  << xy_dist << "   XY Speed: " << xy_speed << std::endl;
-
+          for(int i = 1; i < path_s.size(); i++) {
+            double s_dif = path_s[i][0] - path_s[i-1][0];
+            std::cout << s_dif << std::endl;
             }
-          //std::cout << std::endl << std::endl;
+          std::cout << std::endl << std::endl;
 
-          msgJson["next_x"] = next_x_vals;
-          msgJson["next_y"] = next_y_vals;
+          msgJson["next_x"] = previous_path_x;
+          msgJson["next_y"] = previous_path_y;
 
           auto msg = "42[\"control\","+ msgJson.dump()+"]";
 

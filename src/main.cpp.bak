@@ -1,0 +1,289 @@
+#include <uWS/uWS.h>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+//#include "Eigen-3.3/Eigen/Core"
+//#include "Eigen-3.3/Eigen/QR"
+#include "helpers.h"
+#include "json.hpp"
+
+// for convenience
+using nlohmann::json;
+using std::string;
+using std::vector;
+
+int main() {
+  uWS::Hub h;
+
+  // Load up map values for waypoint's x,y,s and d normalized normal vectors
+  vector<double> map_waypoints_x;
+  vector<double> map_waypoints_y;
+  vector<double> map_waypoints_s;
+  vector<double> map_waypoints_dx;
+  vector<double> map_waypoints_dy;
+  
+  // variables to store last path
+  vector<vector <double>> last_path_s;
+  vector<vector <double>> last_path_d;
+
+  // Waypoint map to read from
+  string map_file_ = "../data/highway_map.csv";
+  // The max s value before wrapping around the track back to 0
+  double max_s = 6945.554;
+
+  std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
+
+  string line;
+  while (getline(in_map_, line)) {
+    std::istringstream iss(line);
+    double x;
+    double y;
+    float s;
+    float d_x;
+    float d_y;
+    iss >> x;
+    iss >> y;
+    iss >> s;
+    iss >> d_x;
+    iss >> d_y;
+    map_waypoints_x.push_back(x);
+    map_waypoints_y.push_back(y);
+    map_waypoints_s.push_back(s);
+    map_waypoints_dx.push_back(d_x);
+    map_waypoints_dy.push_back(d_y);
+  }
+  
+  //improve granularity of the map to 1 meter to improve frenet/cartesian conversions for JMT calculations
+  tk::spline spline_x;
+  tk::spline spline_y;
+  tk::spline spline_dx;
+  tk::spline spline_dy;
+  
+  spline_x.set_points(map_waypoints_s, map_waypoints_x);
+  spline_y.set_points(map_waypoints_s, map_waypoints_y);
+  spline_dx.set_points(map_waypoints_s, map_waypoints_dx);
+  spline_dy.set_points(map_waypoints_s, map_waypoints_dy);
+  
+  
+  granular_map gran_map = get_map(spline_x, spline_y, spline_dx, spline_dy, max_s);
+  
+  //listen for messages and act
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s, &map_waypoints_dx,&map_waypoints_dy, &gran_map]
+              (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+               uWS::OpCode opCode) {
+    // "42" at the start of the message means there's a websocket message event.
+    // The 4 signifies a websocket message
+    // The 2 signifies a websocket event
+    
+    if (length && length > 2 && data[0] == '4' && data[1] == '2') {
+
+      auto s = hasData(data);
+
+      if (s != "") {
+        auto j = json::parse(s);
+        
+        string event = j[0].get<string>();
+        
+        if (event == "telemetry") {
+          // j[1] is the data JSON object
+          
+          // Main car's localization Data
+          double car_x = j[1]["x"];
+          double car_y = j[1]["y"];
+          double car_s = j[1]["s"];
+          double car_d = j[1]["d"];
+          double car_yaw = j[1]["yaw"];
+          double car_speed = j[1]["speed"];
+                   
+          // Previous path data given to the Planner
+          auto previous_path_x = j[1]["previous_path_x"];
+          auto previous_path_y = j[1]["previous_path_y"];
+          
+          // Previous path's end s and d values 
+          double end_path_s = j[1]["end_path_s"];
+          double end_path_d = j[1]["end_path_d"];
+
+          // Sensor Fusion Data, a list of all other cars on the same side 
+          //   of the road.
+          auto sensor_fusion = j[1]["sensor_fusion"];
+
+          json msgJson;
+
+          /**
+           * TODO: define a path made up of (x,y) points that the car will visit
+           *   sequentially every .02 seconds
+           */
+          
+          double timeframe = 0.02;
+          double pathtime = 7.0;
+          double target_velocity = 50 * 0.44704;
+         
+          //begin trajectory creation
+
+          double start_s;
+          double start_d;
+          double end_d;
+          double start_speed;
+          double s_dot;
+          double d_dot;
+          double s_dot_dot;
+          double d_dot_dot;
+          double start_accel;
+          bool change_behavior = false;
+          double buff;  //variable to determine how much of the previous path to include in the subsquent path
+          int prev_path_size = previous_path_y.size();
+          
+          if (prev_path_size == 0 ) {
+            start_s = car_s;
+            start_d = car_d;
+            start_speed = car_speed * 0.44704; //mph to m/s conversion
+            start_accel = 0;
+            buff = 0;
+          } else {
+            //determine how many new points need to be added.  If we're changing behavior, than keep the first 1/2 second of the previous path and then append new values.  If 
+            //there is no change in behavior, then we can simply append to the end of the previous path
+            if (change_behavior == true) {
+              buff = .5/timeframe;
+            } else {
+              buff = prev_path_size-1;
+            }
+            
+			//convert prev_path_x/y to frenet coordinates using a more granular map
+            int i = ClosestWaypoint(previous_path_x[buff], previous_path_y[buff], gran_map.x, gran_map.y); 
+            double theta = rad2deg(atan2(gran_map.dy[i], gran_map.dx[i]));
+            vector<double> end_frenet = getFrenet(previous_path_x[buff], previous_path_y[buff], theta+90, gran_map.x, gran_map.y);
+            
+            //end_frenet still has an error component due to nonlinearities.  With the spline functions for x(s) and y(s) that we defined earlier,
+            //we can remove that error.
+            double test_x = gran_map.spline_x(end_frenet[0]) + end_frenet[1] * gran_map.spline_dx(end_frenet[0]);
+            double test_y = gran_map.spline_y(end_frenet[0]) + end_frenet[1] * gran_map.spline_dy(end_frenet[0]);
+            double transition_distance = distance(test_x, test_y, previous_path_x[buff], previous_path_y[buff]);
+            double prev_dist = distance(previous_path_x[buff], previous_path_y[buff], previous_path_x[buff-1], previous_path_y[buff-1]);
+            double transition_error = transition_distance-prev_dist;
+            double prevx = previous_path_x[buff];
+            double prevy = previous_path_y[buff];
+            double transition_error_x = transition_error*cos(theta);//distance(test_x,0,previous_path_x[buff],0);
+            double transition_error_y = transition_error*sin(theta);//distance(test_y,0,previous_path_y[buff],0);
+            double s_error = transition_error_x*cos(theta) - transition_error_y*sin(theta);
+            double d_error = transition_error_x*sin(theta) + transition_error_y*cos(theta);
+
+            
+            start_s = end_frenet[0] - transition_error; //transition_error;
+            start_d = end_frenet[1];// + d_error;
+            
+            
+            //calculate transition speed and acceleration for the JMT inputs
+            double prev_speed = prev_dist/timeframe;
+            start_speed = prev_speed;
+            s_dot = prev_speed*cos(theta) - prev_speed*sin(theta);
+            d_dot = prev_speed*sin(theta) + prev_speed*cos(theta);
+            
+            double prev_prev_dist = distance(previous_path_x[buff-1], previous_path_y[buff-1], previous_path_x[buff-2], previous_path_y[buff-2]);
+            double prev_prev_speed = prev_prev_dist/timeframe;
+            double prev_accel = (prev_speed - prev_prev_speed)/timeframe;
+            start_accel = prev_accel;
+            s_dot_dot = prev_accel*cos(theta) - prev_accel*sin(theta);
+            d_dot_dot = prev_accel*sin(theta) + prev_accel*cos(theta);
+            
+            //debug
+            double transition_speed = transition_distance/timeframe;
+            double transition_speed_change = transition_speed/start_speed;
+            double newx = gran_map.spline_x(start_s) + end_frenet[1] * gran_map.spline_dx(start_s);
+            double newy = gran_map.spline_y(start_s) + end_frenet[1] * gran_map.spline_dy(start_s);
+            double new_dist = distance(newx, newy, previous_path_x[buff], previous_path_y[buff]); 
+            double new_error = round(10000*(new_dist - prev_dist))/10000;
+            std::cout << "Transition Error: " << transition_error << "  New Error: " << new_error << "  S,D errors: " << s_error << ", " << d_error << std::endl;
+            //std::cout << "S (reported, calculated): (" << end_path_s << "," << end_frenet[0] << ")   D (reported, calculated): (" << end_path_d << "," << end_frenet[1] << ")" << std::endl; 
+            //std::cout << "Distance (Prev, Transition): (" << prev_dist << "," << transition_distance << ")  Speed (Prev, Transition): (" << start_speed << "," << transition_speed << ")" << std::endl;
+            //std::cout << start_s << "  Distance ratio: " << transition_distance_change << "   Speed ratio: " << transition_speed_change << std::endl;
+            //std::cout << "(speed, acceleration): (" << start_speed << "," << start_accel << ")  error:" << new_error << std::endl;
+            
+          }
+          
+          // Create Jerk Minimizing Trajectory coefficients
+          int num_points_required = pathtime/timeframe - buff;
+          double time_required = num_points_required*timeframe;
+          vector<double> s_start = {start_s, start_speed, start_accel};
+          vector<double> s_end = {start_s + (target_velocity+start_speed)/2*time_required, target_velocity, 0};
+          vector<double> d_start = {start_d, d_dot, d_dot_dot};
+          vector<double> d_end = {6, 0, 0};
+		  vector<double> s_coeffs = JMT(s_start, s_end, time_required);
+          vector<double> d_coeffs = JMT(d_start, d_end, time_required);
+		  
+          // calculate new trajectory.  First use the values from the previous trajectory that have not been used, and then concatenate based on new JMT calculation
+          vector<double> next_x_vals;
+          vector<double> next_y_vals;
+          vector<double> next_s_vals;
+          vector<double> next_d_vals;
+
+          if (prev_path_size > 0) {
+            for(int i = 0; i < (buff+1); i++) {
+              next_x_vals.push_back(previous_path_x[i]);
+              next_y_vals.push_back(previous_path_y[i]);
+            }
+          }
+          
+          
+          double next_s;
+          double next_d;
+          double t;
+          for(int i = 0; i < num_points_required ; ++i) {
+    		t = i * timeframe;
+            next_s = s_coeffs[0] + s_coeffs[1] * t + s_coeffs[2] * t*t + s_coeffs[3] * t*t*t + s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
+            next_d = d_coeffs[0] + d_coeffs[1] * t + d_coeffs[2] * t*t + d_coeffs[3] * t*t*t + d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
+            
+            next_s_vals.push_back(next_s);
+            next_d_vals.push_back(next_d);
+            next_x_vals.push_back(gran_map.spline_x(next_s) + next_d * gran_map.spline_dx(next_s));
+            next_y_vals.push_back(gran_map.spline_y(next_s) + next_d * gran_map.spline_dy(next_s));   
+          }
+
+          
+          //DEBUG
+          for(int i = 1; i < next_x_vals.size(); i++) {
+              double xy_dist = distance(next_x_vals[i], next_y_vals[i], next_x_vals[i-1], next_y_vals[i-1]);
+              //double s_dist = next_s_vals[i] - next_s_vals[i-1];
+              double xy_speed = xy_dist/timeframe;
+              //double s_speed = s_dist/timeframe;
+			  //std::cout << "i: " << i << "  (x,y): (" << next_x_vals[i] << "," << next_y_vals[i] << "  XY Distance: " << xy_dist << "  XY Speed: " << xy_speed << std::endl;
+         	  //std::cout << "S Distance: " << s_dist << "  S Speed: " << s_speed << "   Car Speed: " << car_speed << "   XY Distance: "  << xy_dist << "   XY Speed: " << xy_speed << std::endl;
+
+            }
+          //std::cout << std::endl << std::endl;
+
+          msgJson["next_x"] = next_x_vals;
+          msgJson["next_y"] = next_y_vals;
+
+          auto msg = "42[\"control\","+ msgJson.dump()+"]";
+
+          ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+        }  // end "telemetry" if
+      } else {
+        // Manual driving
+        std::string msg = "42[\"manual\",{}]";
+        ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+      }
+    }  // end websocket if
+  }); // end h.onMessage
+
+  h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+    std::cout << "Connected!!!" << std::endl;
+  });
+
+  h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code,
+                         char *message, size_t length) {
+    ws.close();
+    std::cout << "Disconnected" << std::endl;
+  });
+
+  int port = 4567;
+  if (h.listen(port)) {
+    std::cout << "Listening to port " << port << std::endl;
+  } else {
+    std::cerr << "Failed to listen to port" << std::endl;
+    return -1;
+  }
+  
+  h.run();
+}
