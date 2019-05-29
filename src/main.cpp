@@ -121,45 +121,93 @@ int main() {
          
           //begin trajectory creation
 
-          double start_s;
-          double start_d;
-          double end_d;
-          double start_speed;
-          double start_accel;
+          int state;
           bool change_behavior = false;
+          int elapsed_points;
+          int intended_lane;
+          int my_lane = getlane(car_d);
           double buff;  //variable to determine how much of the previous path to include in the subsquent path
-          int prev_path_size = previous_path_y.size();
-          
-          if (prev_path_size == 0 ) {  //initialization when there is no path
+         
+          if (previous_path_y.size() == 0 ) {  //initialization when there is no path
             buff = 0;
+            elapsed_points = pathtime/timeframe;
             path_s.push_back({car_s, car_speed * 0.44704, 0});
             path_d.push_back({car_d, 0, 0});
           } else {
  			//remove from points that have been used from the s and d paths
-            int elapsed_points = path_s.size() - previous_path_y.size();
+            elapsed_points = path_s.size() - previous_path_y.size();
             path_s.erase(path_s.begin(),path_s.begin()+elapsed_points);
             path_d.erase(path_d.begin(),path_d.begin()+elapsed_points);
 
+
             //determine how many new points need to be added.  If we're changing behavior, than keep the first 1/2 second of the previous path and then append new values.  If 
             //there is no change in behavior, then we can simply append to the end of the previous path
-
-            if (change_behavior == true) {
+            /*if (change_behavior == true) {
               buff = .5/timeframe;
             } else {
-              buff = prev_path_size-1;
-            }
+              buff = previous_path_y.size()-1;
+            }*/
              
           }
+           // Set start state for JMT calculation
           
-          // Create Jerk Minimizing Trajectory coefficients
-          int num_points_required = pathtime/timeframe - buff;
-          double time_required = num_points_required*timeframe;
-          vector<double> s_start = {path_s[buff][0], path_s[buff][1], path_s[buff][2]};
-          vector<double> s_end = {path_s[buff][0] + (target_velocity+path_s[buff][1])/2*time_required, target_velocity, 0};
-          vector<double> d_start = {path_d[buff][0], path_d[buff][1], path_d[buff][2]};
-          vector<double> d_end = {6, 0, 0};
-		  vector<double> s_coeffs = JMT(s_start, s_end, time_required);
+          
+          state = 1;
+          int num_points_required;// = pathtime/timeframe - buff;
+          int transition_points;// = num_points_required - elapsed_points;
+          double time_required;// = num_points_required*timeframe;
+
+          vector<double> s_start;
+          vector<double> d_start;
+          vector<double> s_end;
+          vector<double> d_end;
+          // get trajectory sets based on state choice
+          if (state == 1) {
+            vector<double> closest_car = car_to_follow(sensor_fusion, car_s, car_d);
+                                    
+            if (closest_car[0] == 0) { //case where there is no car in the lane
+              //end vectors for stay in lane
+              //variables to play with:  time required
+          	  intended_lane = my_lane;              
+              buff = previous_path_y.size()-1;
+              time_required = elapsed_points*timeframe;
+              num_points_required = elapsed_points;
+              s_start = {path_s[buff][0], path_s[buff][1], path_s[buff][2]};
+              d_start = {path_d[buff][0], path_d[buff][1], path_d[buff][2]};
+           	  s_end = {path_s[buff][0] + (target_velocity+path_s[buff][1])/2*time_required, target_velocity, 0};
+              d_end = {double(intended_lane*4-2), 0, 0};
+            } else { //case where there is a car in the lane that we need to follow
+              //end vectors for car following;
+          	  //variables to play with:  time__required and safety_distance and location in intended_lane
+          	  intended_lane = my_lane;
+              double safety_distance = closest_car[2] * 3/4.4; // keep one car length (4 meters) for every 10mph
+              if((car_speed - closest_car[2]) < 1) {
+                time_required = 3;
+              } else {
+              	time_required = abs(car_s - closest_car[1])/((car_speed - closest_car[2])/2); // solve for t when the two cars would crash if continue at current speed
+                std::cout << "time_required: " << time_required << std::endl; 
+              }
+              num_points_required = time_required/timeframe;
+              path_s = {path_s[0]};
+              path_d = {path_d[0]};
+              previous_path_x = {previous_path_x[0]};
+              previous_path_y = {previous_path_y[0]};
+              s_start = {path_s[0][0], path_s[0][1], path_s[0][2]};
+              d_start = {path_d[0][0], path_d[0][1], path_d[0][2]};
+              
+          	  s_end = {(closest_car[1] - safety_distance)+closest_car[2]*time_required, closest_car[2], 0};
+          	  d_end = {double(intended_lane*4-2), 0, 0};
+              
+              
+            }
+          }
+		  
+          
+          //create JMT coefficients
+          vector<double> s_coeffs = JMT(s_start, s_end, time_required);
           vector<double> d_coeffs = JMT(d_start, d_end, time_required);
+        
+          
 		  
      
           
@@ -175,20 +223,15 @@ int main() {
             d         =   d_coeffs[0] +        d_coeffs[1] * t +     d_coeffs[2] * t*t +     d_coeffs[3] * t*t*t +    d_coeffs[4] * t*t*t*t + d_coeffs[5] * t*t*t*t*t;
             d_dot     =   d_coeffs[1] +      2*d_coeffs[2] * t +   3*d_coeffs[3] * t*t +   4*d_coeffs[4] * t*t*t +  5*d_coeffs[5] * t*t*t*t;
             d_dot_dot = 2*d_coeffs[2] * t +  6*d_coeffs[3] * t +  12*d_coeffs[4] * t*t +  20*d_coeffs[5] * t*t*t;
-                     
+            
             path_s.push_back({s, s_dot, s_dot_dot});
             path_d.push_back({d, d_dot, d_dot_dot});
             previous_path_x.push_back(gran_map.spline_x(s) + d * gran_map.spline_dx(s));
             previous_path_y.push_back(gran_map.spline_y(s) + d * gran_map.spline_dy(s));   
           }
-
+		  
           
-          //DEBUG
-          for(int i = 1; i < path_s.size(); i++) {
-            double s_dif = path_s[i][0] - path_s[i-1][0];
-            std::cout << s_dif << std::endl;
-            }
-          std::cout << std::endl << std::endl;
+          
 
           msgJson["next_x"] = previous_path_x;
           msgJson["next_y"] = previous_path_y;

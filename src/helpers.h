@@ -238,5 +238,44 @@ granular_map get_map(tk::spline x, tk::spline y, tk::spline dx, tk::spline dy, d
   return result;
 }
 
+int getlane(double d) {
+  int result = ceil(d/4);
+  return result;
+}
 
+vector<vector<double>> find_cars_in_lane(vector<vector <double>> sensor_fusion, double lane) {
+  vector<vector <double>> cars;
+  for(vector<double> vehicle : sensor_fusion) { //find all cars in lane ahead of me
+    if(getlane(vehicle[6]) == lane) {
+      cars.push_back({vehicle[5], sqrt(vehicle[3]*vehicle[3] + vehicle[4]*vehicle[4])});
+    }
+  }
+  return cars;
+}
+
+vector<double> car_to_follow(vector<vector <double>> sensor_fusion, double my_s, double my_d) {
+  vector<double> result;
+  vector<vector <double>> cars = find_cars_in_lane(sensor_fusion, getlane(my_d));
+  double lowest_distance = 1000000;
+  
+  result = {0, -1,-1};
+  if (cars.size() > 0) {
+    for(vector<double> vehicle : cars) {
+      double distance = vehicle[0] - my_s;
+      if((distance > 0) and (distance < 50) and (distance < lowest_distance)) {
+        result = {1, vehicle[0], vehicle[1]};
+        lowest_distance = distance;
+        std::cout << "Car " << lowest_distance << " meters ahead at s=" << vehicle[0] << " traveling " << vehicle[1] << " m/s" << std::endl;
+      }
+    }
+  }
+  return result;
+}
+    
+  
+ 
+  
+   
+      
+      
 #endif  // HELPERS_H
