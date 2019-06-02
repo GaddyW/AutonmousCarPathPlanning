@@ -252,8 +252,17 @@ vector<vector<double>> find_cars_in_lane(vector<vector <double>> sensor_fusion, 
   }
   return cars;
 }
+double get_s_distance(double follower, double leader, double max_s) {
+  double distance = leader - follower;
+  if (distance < -2000) {
+    distance += max_s;
+  } else if (distance > 2000) {
+    distance -= max_s;
+  }
+  return distance;
+}
 
-vector<double> car_to_follow(vector<vector <double>> sensor_fusion, double my_s, double my_d) {
+vector<double> car_to_follow(vector<vector <double>> sensor_fusion, double my_s, double my_d, double max_s) {
   vector<double> result;
   vector<vector <double>> cars = find_cars_in_lane(sensor_fusion, getlane(my_d));
   double lowest_distance = 1000000;
@@ -261,20 +270,69 @@ vector<double> car_to_follow(vector<vector <double>> sensor_fusion, double my_s,
   result = {0, -1,-1};
   if (cars.size() > 0) {
     for(vector<double> vehicle : cars) {
-      double distance = vehicle[0] - my_s;
+      double distance = get_s_distance(my_s, vehicle[0],  max_s);
       if((distance > 0) and (distance < 50) and (distance < lowest_distance)) {
         result = {1, vehicle[0], vehicle[1]};
         lowest_distance = distance;
-        std::cout << "Car " << lowest_distance << " meters ahead at s=" << vehicle[0] << " traveling " << vehicle[1] << " m/s" << std::endl;
+       // std::cout << "Car " << lowest_distance << " meters ahead at s=" << vehicle[0] << " traveling " << vehicle[1] << " m/s" << std::endl;
       }
     }
   }
   return result;
 }
     
+vector<vector<double>>  rank_trajectories(vector<vector<vector<double>>> coeffs_package, double max_location, double max_speed, double min_speed, double timeframe, bool d_trajectory, double max_accel, double max_jerk) {
+  double s, s_dot, s_dot_dot, s_ddd;
+  double t;
+  double min_cost = 1000000;
+  double cost = min_cost;
+  bool driveable;
+  vector<vector<double>> result;
+  vector<vector<double>> trajectory = {};
   
- 
-  
+  for(vector<vector<double>> coeffs : coeffs_package) {
+    int num_points_required = coeffs[1][0]/timeframe;
+    //std::cout << num_points_required << std::endl;
+    vector<double> s_coeffs = coeffs[0];
+    //s_coeffs[0] << ", " << s_coeffs[1] << ", " << s_coeffs[2] << ", " << s_coeffs[3] << ", " << s_coeffs[4] << ", " << s_coeffs[5] << std::endl;
+    driveable = true;
+    cost = 1000;
+    for(int i = 1; i < num_points_required ; ++i) {
+      t = i * timeframe;
+      s         =   s_coeffs[0] +        s_coeffs[1] * t +     s_coeffs[2] * t*t +     s_coeffs[3] * t*t*t +    s_coeffs[4] * t*t*t*t + s_coeffs[5] * t*t*t*t*t;
+      s_dot     =   s_coeffs[1] +      2*s_coeffs[2] * t +   3*s_coeffs[3] * t*t +   4*s_coeffs[4] * t*t*t +  5*s_coeffs[5] * t*t*t*t;
+      s_dot_dot = 2*s_coeffs[2] *   +  6*s_coeffs[3] * t +  12*s_coeffs[4] * t*t +  20*s_coeffs[5] * t*t*t;
+      s_ddd     = 6*s_coeffs[3]     + 24*s_coeffs[4] * t +  60*s_coeffs[5] * t*t;
+      s = fmod(s, max_location);
+	  
+      trajectory.push_back({s, s_dot, s_dot_dot});
+      if ((s_dot < min_speed) or (s_dot > max_speed) or (abs(s_dot_dot) >= max_accel) or (abs(s_ddd) >= max_jerk) or (d_trajectory == true and ((s < 1) or (s > 11)))) {
+        driveable = false;
+        //std::cout << i << "{" << s << ", " << s_dot << ", " << s_dot_dot << ", " << s_ddd << "}" << std::endl; 
+        break;
+      } 
+    }
+    if (driveable == true) { 
+       if (d_trajectory == false){
+         //cost = 1/(get_s_distance(trajectory.front()[0], trajectory.back()[0], max_location)/trajectory.size());
+         cost = abs(trajectory.back()[2]);
+       } else {
+         double size = trajectory.size();
+         cost = 1/size;         
+       }
+    }
+    if (driveable = true and cost < min_cost and cost > 0) {
+      result = trajectory;
+      double size = result.size();
+      //std::cout << min_cost << std::endl;
+      min_cost = cost;
+      //std::cout << "Driveable = " << driveable << " Cost = " << cost << " d: " << d_trajectory << "  (" << trajectory.front()[0] << ", " << trajectory.back()[0] << ") with points: " << size << " and pathtime: " << coeffs[1][0] << std::endl;
+    }
+    trajectory = {};
+   }
+  return result;
+}
+
    
       
       
