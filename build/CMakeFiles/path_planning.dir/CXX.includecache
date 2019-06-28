@@ -1133,6 +1133,8 @@ vector
 -
 helpers.h
 /home/workspace/CarND-Path-Planning-Project/src/helpers.h
+trajectory.h
+/home/workspace/CarND-Path-Planning-Project/src/trajectory.h
 json.hpp
 /home/workspace/CarND-Path-Planning-Project/src/json.hpp
 
@@ -1145,4 +1147,20 @@ vector
 -
 algorithm
 -
+
+/home/workspace/CarND-Path-Planning-Project/src/trajectory.h
+math.h
+-
+string
+-
+cmath
+-
+vector
+-
+iostream
+-
+spline.h
+/home/workspace/CarND-Path-Planning-Project/src/spline.h
+Eigen-3.3/Eigen/Dense
+/home/workspace/CarND-Path-Planning-Project/src/Eigen-3.3/Eigen/Dense
 

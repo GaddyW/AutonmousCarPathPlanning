@@ -216,4 +216,5 @@ CMakeFiles/path_planning.dir/src/main.cpp.o: ../src/helpers.h
 CMakeFiles/path_planning.dir/src/main.cpp.o: ../src/json.hpp
 CMakeFiles/path_planning.dir/src/main.cpp.o: ../src/main.cpp
 CMakeFiles/path_planning.dir/src/main.cpp.o: ../src/spline.h
+CMakeFiles/path_planning.dir/src/main.cpp.o: ../src/trajectory.h
 
